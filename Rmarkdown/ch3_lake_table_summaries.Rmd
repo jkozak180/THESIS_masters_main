@@ -1,0 +1,270 @@
+---
+title: "Ch4_table_summaries"
+author: "Julia Kozak"
+date: "2025-08-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Loading Packages, include=TRUE}
+#Functional:
+library(tidyverse)     #Package to process our data, stylized formation
+library(lubridate)
+library(magrittr)      #Package to help coding sequencing 
+library(janitor)       #Package for 'clean_names()' function
+library(TukeyC)        #Package to run a Tukey Test (classic)
+library(car)           #Package to run Levene's test on ANOVA 
+#Aesthetics:
+library(ggplot2)       #Package to generate plotted data
+library(patchwork)     #Package for extensive plotted data configuration 
+library(ggthemes)      #Package for extra themes, scales, and geoms for plotted data
+library(RColorBrewer)  #Package to colour plots
+
+library(here)          #Package to set working directory via `.Rproj`
+getwd()                #Function to affirm working directory 
+```
+```{r Loading Data, include=TRUE}
+field_obs_raw=read.csv(here("data_csv", "353_Lim_field_obs_R.csv")) 
+kd_raw=read.csv(here("data_csv", "353_Lim_Kd_R.csv"))         #load in datasets
+par_raw=read.csv(here("data_csv", "353_Lim_PAR_R.csv"))  
+#Need to determine lake trophic status (TP ug/L) so load in all lake chem data:
+L114_raw=read.csv(here("data_csv", "20250211_JKozak_2023_2024_114_chem_data.csv"))
+L227_raw=read.csv(here("data_csv", "20250211_JKozak_2023_2024_227_chem_data.csv"), 
+                  fileEncoding="Latin1")
+L239_raw=read.csv(here("data_csv", "20250211_JKozak_2023_2024_239_chem_data.csv"))
+L303_raw=read.csv(here("data_csv", "20250211_JKozak_2023_2024_303_chem_data.csv"), 
+                  fileEncoding="Latin1")
+L304_raw=read.csv(here("data_csv", "20250211_JKozak_2023_2024_304_chem_data.csv"), 
+                  fileEncoding="Latin1")
+
+#Note: L227, L303, L304 had issues reading in bc not in UTF-8.csv form
+#'ug/L' in units causing disruption to file read. Did not save them in new
+#form just used code line fix individually so not to loose shortcut. 
+```
+
+
+############################### THERMOCLINE ####################################
+Note: the sole *'NA'* in the column did not affect any mean calculations since the `na.rm=TRUE` was incorporated, but removed nonetheless. 
+```{r Cleaning data for thermocline}
+field_obs_clean=field_obs_raw %>%                   #create new smaller dataset
+  select(monitoring_location_name, year, date, plan_therm_depth) %>% #select rows
+  rename(lake=monitoring_location_name) %>%   #just hated this title
+  filter(!is.na(plan_therm_depth)) %>%        #saw 1 'NA' for L303, remove
+  mutate(date=as.Date(date)) %>%         #date col was a chr to convert to date
+    filter(year=="2024") %>%             #only want avg for 2024 season
+    filter(between(date, as.Date("2024-06-01"), #filtering for Int Fe sample months
+                               as.Date("2024-09-30"))) %>%
+  mutate(month=month(date)) %>%                      #make month it's own column
+  select(lake, year, date, month, plan_therm_depth, everything())       #reorder
+
+print(field_obs_clean)
+```
+```{r checking how many samplng dates there are for thermocline calc}
+#so how the mean for each lake is based on how many sampling events.. not great.
+field_obs_clean %>%
+  group_by(lake) %>%
+  count() %>%
+print()       
+```
+
+Checked monthly `plan_therm_depth` averages from June-Sept for L114. Math is mathing, so code must've done its job hopefully. I also checked by hand the SD calculation for L114 monthly average (1.468) and that checks out too, so rest should hopefully be fine. 
+Seasonal L114 thermocline average mean checks out too. 
+
+```{r calculating thermocline averages}
+thermocline_depths=field_obs_clean %>% #generate new table to not affect changes
+  group_by(lake, month) %>%         #want a monthly average per lake since samples vary
+    mutate(monthly_mean=round(mean(plan_therm_depth, na.rm=TRUE), 2)) %>% 
+    mutate(monthly_sd=round(sd(plan_therm_depth, na.rm=TRUE), 2)) %>%
+  ungroup() %>%
+#Now want a seasonal average for all lakes using monthly averages:
+  group_by(lake) %>%
+    mutate(seasonal_mean=round(mean(monthly_mean, na.rm=TRUE), 2)) %>% 
+    mutate(seasonal_sd=round(sd(monthly_sd, na.rm=TRUE), 2)) %>%
+  ungroup() %>%
+#Hm. Seasonal average using all sampling dates:
+  group_by(lake) %>%
+    mutate(seasonal_mean=round(mean(plan_therm_depth, na.rm=TRUE), 2)) %>% 
+    mutate(seasonal_sd=round(sd(plan_therm_depth, na.rm=TRUE), 2)) %>%
+  ungroup() %>%
+#I think that this is more representative of true thermocline mean. 
+mutate(diff=monthly_mean-seasonal_mean) %>% # + = larger monthly 
+print(thermocline_depths) 
+```
+
+################################# KD RATES ####################################
+```{r cleaning data for Kd attenuation rates}
+kd_clean=kd_raw %>%
+  select(monitoring_location_name, sample_date, kd_best_fit_pts, r2_best_fit_pts) %>%
+  rename(lake=monitoring_location_name,                  #just hated this title
+         date=sample_date) %>%          
+  mutate(date=as.Date(date)) %>%          #date col was a chr to convert to date
+    filter(year(date)=="2024") %>%                 #only want avg for 2024 season
+  filter(between(date, as.Date("2024-06-01"), #filtering for Int Fe sample months
+                               as.Date("2024-09-30"))) %>%
+  mutate(month=month(date)) %>%               #make month it's own column if by month
+#Overall seasonal average using all sampling dates:
+  group_by(lake) %>%
+    mutate(seasonal_kd_mean=round(mean(kd_best_fit_pts, na.rm=TRUE), 2)) %>% 
+    mutate(seasonal_kd_sd=round(sd(kd_best_fit_pts, na.rm=TRUE), 2)) %>%
+  ungroup() %>%
+
+print(kd_clean)
+```
+
+
+################################# Photic Depth ##################################
+```{r cleaning data to find the photic zone}
+par_clean=par_raw %>%
+  select(monitoring_location_name, sample_date, depth_m,   
+         avg_water_to_air_par_light_pct) %>%
+  rename(lake=monitoring_location_name,                  #just hated this title
+         date=sample_date,
+         light_pct=avg_water_to_air_par_light_pct) %>%          
+#Make sure right year, and can work with dates:  
+  mutate(date=as.Date(date)) %>%          #date col was a chr to convert to date
+    filter(year(date)=="2024") %>%                 #only want avg for 2024 season
+  filter(between(date, as.Date("2024-06-01"), #filtering for Int Fe sample months
+                       as.Date("2024-09-30"))) %>%
+#  mutate(month=month(date)) %>%           #make month it's own column if by month
+
+print(par_clean)
+```
+
+I went through this new df manually (roughly) and the T/F and reported depths seem to check out (esp. L239 2024-09-09) so should be good. 
+```{r calculating photic zone depth averages based on 1%}
+photic_depths=par_clean %>%
+#need to find the deepest depth and/or the depth at which col equal or < 1% 
+  group_by(lake, date) %>%  #want to find depth per sampling date since multi per day
+  summarize(photic_zone={  #new col and find depth matching, then store in new var
+                        onepct=depth_m[light_pct<=1] 
+                      if (length(onepct)>0) {min(onepct, na.rm=TRUE)} 
+                      #if multi found in var below 1% take shallowest/min depth
+                      else {max(depth_m, na.rm=TRUE)}#if no <1% take deepest depth
+                        },                #function ends but look and summarise 
+  #Quick check for flags via T/F if `if_else` worked properly:
+  reached_1pct=any(light_pct<=1, na.rm=TRUE), #was any 1% reached for that day?
+  zmax_measured=max(depth_m, na.rm=TRUE)) %>%#if not (F) what was max dept sampled?
+  ungroup()
+print(photic_depths)
+```
+```{r re-join OG par and new photic table together}
+#Re-join OG table since summarise function collapsed previous two cols:
+photic_depths_all<-par_clean %>%
+  left_join(photic_depths, by=c("lake", "date")) #%>%
+#i think this table is just to confirm that the correct shallowest 1% and deepest above 1% values were taken. 
+print(photic_depths_all)
+```
+
+
+
+```{r calculate average photic zone depth per lake}
+#using the `photic_depths` df because easier and data looks accurate, only made
+# the `photic_depths_all just to confirm that data returned was good
+
+photic_depths_avg=photic_depths %>%
+  group_by(lake) %>% #want single avg for each lake (compressed light profiles already)
+    mutate(seasonal_photic_mean=round(mean(photic_zone, na.rm=TRUE), 2)) %>% 
+    mutate(seasonal_photic_sd=round(sd(photic_zone, na.rm=TRUE), 2)) %>%
+  ungroup()
+
+print(photic_depths_avg)
+```
+
+ 
+
+################################# Total Phosp. ##################################
+
+-----------------------------------------------------------------------
+**THE FOLLOWING DATA BELOW ARE FOR OLD CHEM DATA FORMATTED SHEETS LMFAO**
+*THIS DATA IS NOT TO BE USED AND WAS NOT USED FOR ANY THESES PORTIONS, DO NOT RUN IT AS IT WILL OVER-WRITE THE NEW INFORMATION TO BE USED ABOVE. This was all done correctly, however, formatting differences render it no longer useful. LOL.*
+- Chem data dates are in fucking mm/dd/yyyy (ex. 07/17/2024) and currently a 
+character type so they need to be converted into a date type and also re-ordered 
+into yyyy-mm-dd without the dumb ass slashes.
+- Tested L227 EPI TDP values (9 dates; 8 data values) for mean calc. by hand, matches and checks out. 
+
+```{r manually cleaning L227 for TDP}
+chem_cleanup_TDP_L227=L227_raw %>%
+  clean_names() %>%
+  select(site, collect_date, test, param, result, results_units) %>% #only cols
+  mutate(collect_date=mdy(collect_date)) %>%#automatically puts into yyyy-mm-dd
+  filter(year(collect_date)=="2024") %>%          #only want avg for 2024 season
+  filter(between(collect_date, as.Date("2024-06-01"),#filtering for IntFe samples
+                       as.Date("2024-09-30"))) %>% #timeline when taken 
+  filter(test %in% c("TDP", "Part P")) %>%  #need both for TP
+  filter(str_detect(site, fixed("Epi"))) %>%#only epi bc bioavailable for phyto
+#It looks like there are dates with missing part-p data.. which means there would
+#only be TDP for those ones.. not a true TP, so have to drop dates when missing: 
+  mutate
+  
+#Overall seasonal average using all sampling dates:
+   group_by(site) %>%                           #this line is probably redundant 
+    mutate(seasonal_TDP_mean=round(mean(result, na.rm=TRUE), 2)) %>% 
+    mutate(seasonal_TDP_sd=round(sd(result, na.rm=TRUE), 2)) %>%
+   ungroup()
+  
+
+print(chem_cleanup_TDP_L227)
+```
+
+```{r developing a function to determine TDP per lake}
+chem_cleanup_TDP_function=function(df, lake)
+{df %>%
+  clean_names() %>%
+  select(site, collect_date, test, param, result, results_units) %>%
+  mutate(collect_date=mdy(collect_date)) %>%     #automatically puts into yyyy-mm-dd
+  filter(year(collect_date)=="2024") %>%              #only want avg for 2024 season
+  filter(between(collect_date, as.Date("2024-06-01"), #filtering for IntFe samples
+                       as.Date("2024-09-30"))) %>%
+  filter(test=="TDP") %>%
+  filter(str_detect(site, fixed("Epi"))) %>% #only epi values bc bioavailable for phyto
+#Overall seasonal average using all sampling dates:
+   group_by(site) %>%                           #this line is probably redundant 
+    mutate(seasonal_TDP_mean=round(mean(result, na.rm=TRUE), 2)) %>% 
+    mutate(seasonal_TDP_sd=round(sd(result, na.rm=TRUE), 2)) %>%
+   ungroup()  
+}
+#Make a list so that I only have to run the function over them once:
+all_lakes_list<- list(L114=L114_raw,
+                      L227=L227_raw,
+                      L239=L239_raw,
+                      L303=L303_raw,
+                      L304=L304_raw)
+```
+
+1. Tested the function on one lake (`chem_cleanup_TDP_function(L227_raw, lake="L227")`)
+and appears exactly like how it does the first time I ran it on the `.csv`
+But could not get my list to auto-run with the function, so manually inputting 
+the function on each `.csv` (still saves code space). 
+
+2. There are more sampling dates for L303 & L304 for TDP (all chem nutrients)
+as opposed to Kd etc. because HydroLim only has data for their bi-weekly data
+(i.e., average counts per lake throughout season between their data and chem 
+data differ). L114, L227, L237 returning diff total sampling dates:
+ - L114: 8 chem       | 11 PAR
+ - L227: 9 (8) chem   | 10 PAR
+ - L239: 13 (12) chem | 9 PAR
+ - L303: 17 (15) chem | 9 PAR
+ - L304: 17 (15) chem | 9 PAR
+*Me from the future: L239 has at least 4-5 days of duplicates ran from the same sample (date), so why that LTER has more chem than the other two.*
+```{r}
+chem_cleanup_TDP_function(L114_raw, lake="L114")
+chem_cleanup_TDP_function(L239_raw, lake="L239")
+chem_cleanup_TDP_function(L303_raw, lake="L303")
+L304_TDP=chem_cleanup_TDP_function(L304_raw, lake="L304")
+```
+
+```{r}
+L304_TDP_model=lm(result~collect_date, data=L304_TDP)
+r2_val=summary(L304_TDP_model)$r.squared  #extract R2 value
+
+
+L304_TDP %>%
+  filter(!is.na(result)) %>%
+ggplot(aes(x=collect_date, y=result)) +
+  geom_point() +
+  geom_smooth(method="lm", se=TRUE, color="red")
+```
+

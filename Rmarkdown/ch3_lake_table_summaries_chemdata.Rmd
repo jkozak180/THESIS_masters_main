@@ -1,0 +1,138 @@
+---
+title: "ch3_lake_table_summaries_chemdata"
+author: "Julia Kozak"
+date: "2025-10-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Loading Packages, include=TRUE}
+#Functional:
+library(tidyverse)     #Package to process our data, stylized formation
+library(dplyr)
+library(lubridate)
+library(magrittr)      #Package to help coding sequencing 
+library(janitor)       #Package for 'clean_names()' function
+library(TukeyC)        #Package to run a Tukey Test (classic)
+library(car)           #Package to run Levene's test on ANOVA 
+#Aesthetics:
+library(ggplot2)       #Package to generate plotted data
+library(patchwork)     #Package for extensive plotted data configuration 
+library(ggthemes)      #Package for extra themes, scales, and geoms for plotted data
+library(RColorBrewer)  #Package to colour plots
+
+library(here)          #Package to set working directory via `.Rproj`
+getwd()                #Function to affirm working directory 
+```
+
+**THE FOLLOWING DATA BELOW ARE FROM THE UPDATED CHEMISTRY DATABASE**
+*NOTE: Previous ch3_lake_table_summaries featured TP cleaning and calculations. Do not run those code lines, as they are formatted with old ChemLab headers. I will use some of the same bulk code to cleanse from that file, but be sure to consistently wipe the environment when working with either so as to not overlap and potentially get incorrect results. Fuck, I'm so fucking pissed right now.*
+
+```{r Loading Data, include=TRUE}
+#Need to determine lake trophic status (TP ug/L) so load in all lake chem data:
+lakedata_raw=read.csv(here("data_csv", "20250908_JKozak_2023_2024_114_227_239_303_304_chem_data.csv"),  fileEncoding="Latin1") #this line keeps the unit symbols legible 
+```
+
+################################# Total Phosp. ##################################
+*Note 01:*
+- Chem data dates are in fucking mm/dd/yyyy (ex. 07/17/2024) and currently a 
+character type so they need to be converted into a date type and also re-ordered 
+into yyyy-mm-dd without the dumb ass slashes.
+- Tested L227 EPI TDP values (9 dates; 8 data values) for mean calc. by hand, matches and checks out (*This note is from the old R_file, should still stand though*) 
+
+```{r clean dataset for easy chem parameters}
+lakedata_clean=lakedata_raw %>%
+  clean_names() %>%
+  select(site, date_collected, test, parameter, result, units) %>% #only cols
+  mutate(date_collected=mdy(date_collected)) %>%   #auto puts into yyyy-mm-dd
+  filter(year(date_collected)=="2024") %>%        #only want avg for 2024 season
+  filter(between(date_collected, as.Date("2024-06-01"), #filtering for IntFe 
+                       as.Date("2024-09-30"))) %>%     #samp timeline when taken 
+  separate(site, into=c("lake", "LA", "CB", "depth"), sep=" ", remove=FALSE) %>%
+  select(-site, -LA, -CB) #make new lake col clearer w/o site descriptions 
+  
+print(lakedata_clean)
+```
+*Note 01:*
+- Original TP summation provided a numerical value of zero when there was a combined Part-P NA and inputted TDP value of 0.0ug/L, which lead to the 0.0ug/L TP value being included in the TP_mean calculation. 
+- TDP LOD: 3.0 ± 1.5µg L-1 but going through the TDP/Part-P data shows 'detectable' values up to 0.2ug/L... 
+**I have decided to keep the 0.0ug/L values as reported, and subsequently they are included in the final TP_mean average values**
+
+*Note 02:*
+- TP column when summing Part-P and TDP would equal 0ug/L if both values were NA, instead of returning an 'NA' value. Changed lines so that if one value + an NA was present TP = sole value, or if both were NAs TP = NA
+
+*Note 03:*
+- Holy fuck, there is a duplicate date entry for L239 2024-06-17, 2024-07-15 and 2024-08-12, both Part-P and TDP... Same thing on L239 2024-09-09, but this time all four values varied so individual Part-P and TDP values were first averaged, then summed for TP per L239 per date which that singular value would then do into for the seasonal averages... like what the actual fuck? I am so fucking tired, man. 
+**I have made it so that when calculating TP sum it does not double up on each Part-P or TDP value (NOT 3.5+3.5+1.55+1.55 from the Mean_P_result row = 10.2 TP). But doing it this way means that R only takes the first row of that lake per that date.** 
+- Example: L239 2024-06-17 keeps its first pairing (PartP 4ug/L & TDP 1.6ug/L) we lose the second replicate results pairing data from that date (3ug/L and 1.5ug/L) which initially led to the averaged Part P and TDP values still visible in the new `mean_P_result` col (4+3=7/2= 3.5 PartP & 1.6+1.5=3.1/2= 1.55 TDP). New TP col is correct (3.5 + 1.55 = 5.1)
+```{r find TP values for IntFe 2024 season}
+lakedata_clean_TP=lakedata_clean %>%
+ filter(test %in% c("TDP", "Part P")) %>%    #need both for TP
+ filter(depth %in% c("Epi")) %>%             #only epi bc bioavailable for phyto
+#There are STILL Part-P data missing... will use whatever is available now +
+#there are replicates for same lake + day, need only one TDP/Part-P value:
+ group_by(lake, date_collected, test) %>% #one avg val per test per date
+  mutate(mean_P_result=if_else(all(is.na(result)),                
+      NA_real_,                    #did this correctly, see notes above  
+      round(mean(result, na.rm=TRUE), 1))) %>%  
+  ungroup() %>%
+#Overall seasonal TP per lake per date using all sampling dates:
+ distinct(lake, date_collected, test, .keep_all=TRUE) %>%
+ ungroup() %>%                #Need 1 TP per sample date per lake (sum)
+ group_by(lake, date_collected) %>%                   #see notes above
+  mutate(TP=if_else(all(is.na(mean_P_result)),                
+      NA_real_,                              
+      round(sum(mean_P_result, na.rm=TRUE), 2))) %>%
+  ungroup() %>% #checked and keeps the 1 value, drops NAs and keeps as NAs
+arrange(lake, TP)
+  
+print(lakedata_clean_TP)
+#write.csv(lakedata_clean_TP, "lakedata_clean_TP.csv", row.names=FALSE)
+```
+
+*Note 01:*
+I've tried sooo hard to get a real mean and SD value for these TPs but I can't because the SD keeps using both TP values per lake per date (Part-P and TDP) which doubles the mean. 
+Example L114 has 8 sampling dates:
+- TP = 0.4ug/L + 0.4 + 0.9ug/L + 0.9 + 2.3 + 2.3 etc. = 88.8/16 = 5.55 
+- This is the correct mean and balances out because its the same fraction of itself. The true way to compute the mean is by only using only one of each but 0.4 + 0.9 + 2.3 + 3.5... = 44.4/8 = 5.55 same mean. 
+- This however, is incorrect with the SD because it doubles the variance from 172.48/7 > 24.64 > 4.96 to *344.96/15 > 22.997 > 4.79 (INCORRECT SD)* since n=8 not n=16 here. 
+
+Why I am creating a separate table to compute this:
+```{r Find the average TP value for IntFe season}
+#Like was explained previously, this method will remove the secondary line of test parameter (TDP) from the dataframe (resulting in an only Part-P df) but TP was all founded upon all values seen previously from the prior OG datatable. Doing this gets only ONE sample date (correct n=) and still carries over the same correct summed TP value without duplicating it. 
+lakedata_clean_TP_mean=lakedata_clean_TP %>% 
+  distinct(lake, date_collected, TP, .keep_all=TRUE) %>%
+  ungroup() %>%           #it kept only part-p TP good (n=1 sample date)
+  group_by(lake) %>%                     #one avg val per test per date
+  mutate(mean_TP=if_else(all(is.na(TP)),     #do not include NAs in avg 
+      NA_real_,                    #did this correctly, see notes above  
+      round(mean(TP, na.rm=TRUE), 2))) %>%  
+  mutate(mean_TP_sd=round(sd(TP, na.rm=TRUE), 2)) %>%  #get SD values
+  ungroup() %>%         #SD values for 239 done manually match R ones
+  
+print(lakedata_clean_TP_mean)
+```
+*Note 01:*
+Looking at L239 data only, the average from TP column was computed correctly (n=8) included the zero in the average, but not the NA (did not count towards n). L239 SD calculations based on TP column when done manually by hand also matched that of the R output. Counted all n per lake, summary table below matches (n=8 LTER, n=15 303/304).
+```{r mean summation table}
+lakedata_clean_TP_mean %>%
+  select(lake, mean_TP, mean_TP_sd)  %>%
+  distinct() %>%
+  arrange(lake)
+```
+```{r SD values returned as large or higher than TP mean values :( }
+lakedata_clean_TP_mean %>%
+  group_by(lake) %>%
+  summarise(n=sum(!is.na(TP)), min_TP=min(TP, na.rm=TRUE),
+                               max_TP=max(TP, na.rm=TRUE), 
+            TP_range=max_TP-min_TP)
+```
+
+```{r check what happened when looking one lake at a time}
+lakedata_clean_TP_mean %>%
+  select(lake, date_collected, TP, mean_TP, mean_TP_sd)  %>%
+ filter(lake %in% c("114")) 
+```

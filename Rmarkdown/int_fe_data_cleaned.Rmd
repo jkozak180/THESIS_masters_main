@@ -1,0 +1,92 @@
+---
+title: "Int_Fe_raw_plots"
+author: "Julia Kozak"
+date: "2025-08-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Loading Packages, include=TRUE}
+#Functional:
+library(tidyverse)     #Package to process our data, stylized formation
+library(lubridate)
+library(magrittr)      #Package to help coding sequencing 
+library(janitor)       #Package for 'clean_names()' function
+#Aesthetics:
+library(ggplot2)       #Package to generate plotted data
+library(patchwork)     #Package for extensive plotted data configuration 
+library(ggthemes)      #Package for extra themes, scales, and geoms for plotted data
+library(RColorBrewer)  #Package to colour plots
+
+library(here)          #Package to set working directory via `.Rproj`
+getwd()                #Function to affirm working directory 
+```
+
+```{r Loading Data, include=TRUE}
+csv_1=read.csv(here("data_csv", "20240711_intfe_calc_csv.csv")) 
+csv_2=read.csv(here("data_csv", "20240725_intfe_calc_csv.csv"))
+csv_3=read.csv(here("data_csv", "20241106_intfe_calc_csv.csv"))  
+csv_4=read.csv(here("data_csv", "20241107_intfe_calc_csv.csv"))  
+#Want all of these separate dataframes into one comprehensive set:
+int_fe_raw=bind_rows(csv_1, csv_2, csv_3, csv_4)
+print(int_fe_raw)
+```
+```{r do a bit of cleaning}
+int_fe_clean=int_fe_raw %>%
+  clean_names() %>%
+  mutate(lake=str_extract(sample_id, "L\\d+")) %>%#find L then as many digits after
+  mutate(sample_date=str_extract(sample_id, "\\d{8}")) %>%#take first 8 digit block
+    mutate(sample_date=ymd(sample_date)) %>% 
+  mutate(fe_type=str_to_lower(str_extract(sample_id,
+                regex("(int\\s*fe|part\\s*fe)", ignore_case=TRUE)))) %>%
+  mutate(fe_type=case_when(fe_type=="intfe" ~ "IntFe",
+                           fe_type=="partfe" ~ "PartFe")) %>%
+  select(sample_id, sample_date, lake, fe_type, sample_fe_g_l, everything()) %>%
+print(int_fe_clean)
+```
+
+```{r}
+int_fe_clean %>%
+  filter(!is.na(fe_type)) %>%
+ggplot(aes(x=sample_date, y=sample_fe_g_l, colour=fe_type, shape=lake)) +
+  geom_point() 
+
+
+```
+```{r}
+int_fe_clean %>%
+  filter(!is.na(fe_type), !is.na(sample_date), !is.na(sample_fe_g_l)) %>%
+ggplot(aes(sample_date, sample_fe_g_l, colour=lake)) +
+  geom_point(size=2, alpha=0.85) +
+  facet_wrap(~fe_type, nrow=1) +
+  scale_x_date(date_breaks="1 month", date_labels="%b") +
+  labs(x="Date", y="Fe (ug/L)", color="Lake", shape="Lake") +
+  theme_minimal() +
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+```{r}
+lake_plots=function(L) {
+  data=filter(int_fe_clean,lake== L) 
+  ggplot() +
+    geom_point(data=data, aes(sample_date, sample_fe_g_l,    
+                               colour=fe_type), size=2, alpha=0.85) +
+    scale_x_date(date_breaks="1 month", date_labels="%b") +
+    labs(title=paste0(L),
+         x="Date", y="Fe (ug/L)", color="Type") +
+    theme_minimal(base_size=12) +
+    theme(axis.text.x=element_text(angle=45, hjust=1)) } 
+
+lakes=c("L114","L227","L239","L303","L304")
+plots=setNames(lapply(lakes, lake_plots), lakes)
+
+plots$L114
+plots$L227
+plots$L239
+plots$L303
+plots$L304
+
+```
+

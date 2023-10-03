@@ -1,0 +1,210 @@
+---
+title: "cleaning_dialysis"
+author: "Julia Kozak"
+date: "2024-11-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Loading Packages, include=FALSE}
+#Functional:
+library(tidyverse)     #Package to process our data, stylized formation
+library(dplyr)         #Sub tidyverse package for data manipulation 
+library(magrittr)      #Package to help coding sequencing 
+library(janitor)       #Package for 'clean_names()' function
+library(readr)         #Package to help parse rectangular data
+library(stringr)       #Package to deal w/ NAs and manipulate cols/data
+library(lubridate)     #Package for date processing and plotting
+library(broom.mixed)   #Package to clean diverse model outputs
+#Aesthetics:
+library(ggplot2)       #Package to generate plotted data
+library(patchwork)     #Package for extensive plotted data configuration
+library(ggthemes)      #Package for extra themes, scales, and geoms for plotted data
+library(RColorBrewer)  #Package to colour plots
+library(viridis)       #Package to colour plots
+#Data:
+library(palmerpenguins)#Package containing all `palmerpenguin` data
+
+library(here)          #Package to set working directory via `.Rproj`
+getwd()                #Function to affirm working directory 
+```
+
+################################ L303 ########################################
+```{r Loading Data, include=TRUE}
+L303=read_csv(here("data","2024_Fe_results_L303.csv")) %>%
+  select(-station) %>%  #remove these cols
+  mutate(station=str_extract(sample_id, "(?<=_)[0-9]+\\.[0-9]+")) %>% #new col station 
+  clean_names() %>%
+  print()
+```
+
+```{r Create a Function to Input Station Depths}
+get_depth_303=function(target_depth, station)  #define and create new function
+  {
+  if (is.na(target_depth) & station == "1.1") #if 'NA' fill value for 1.1 (SWI)
+    {return(1.5)                              #ensure numerical value for depth
+  } else if (is.na(target_depth) & station == "1.2") 
+    {return(2)  
+  } else if (is.na(target_depth) & station == "1.3") 
+    {return(2.25)
+  } else if (is.na(target_depth) & station == "1.4") 
+    {return(2.5)
+  } else if (is.na(target_depth) & station == "2.1") 
+    {return(1.5)
+  } else if (is.na(target_depth) & station == "2.2") 
+    {return(2)
+  } else if (is.na(target_depth) & station == "2.3") 
+    {return(2.25)
+  } else if (is.na(target_depth) & station == "2.4") 
+    {return(2.5)
+  } else if (is.na(target_depth) & station == "2.5") 
+    {return(2.25)
+  } else if (is.na(target_depth) & station == "2.6") 
+    {return(2)
+  } else if (is.na(target_depth) & station == "2.7") 
+    {return(1.5)
+    
+    } else {
+    return(target_depth)   #keep existing target_depth if condition is not met (0.5)
+  }
+}
+```
+
+```{r Apply Function, Reorder Cols}
+L303_depths=L303 %>%                            #create new df
+  rowwise() %>%                                 #apply function rowwise across
+  mutate(station_depth=get_depth_303(target_depth, station)) %>% #new col w function
+  select(date, sample_id, station, type, station_depth, fe2_mg_l, notes, -target_depth) %>% #reorder cols
+  mutate(station_depth=round(station_depth, 1),
+         fe2_mg_l=round(fe2_mg_l, 4)) %>%               #round new col
+print()
+```
+
+```{r Average Fe Values per Station per Type}
+L303_final=L303_depths %>%                                        #create new df
+  group_by(date, station, type) %>%      #only do this as based on this criteria
+#We need the average value from both replicates from i.) each day ii.) each station and iii.) each depth from that one station (e.g., 0.5m v SWI)
+  mutate(fe_average=round(mean(`fe2_mg_l`, na.rm=TRUE), 4)) %>% #calculate mean, ignoring NA... checked first rows, seems to have been done/applied correctly
+  ungroup() %>% 
+  select(date, sample_id, station, type, station_depth, 
+         fe2_mg_l, fe_average, notes) %>%
+print()
+```
+
+```{r Save new .CSV file}
+#Date Last run and saved: 2024-NOV-29
+#write_csv(L303_final, here("data", "2024_Fe_results_L303_cleaned.csv"))
+```
+
+```{r Make a Plot with only L303 0.5m AVERAGE Data, include=FALSE}
+L303_dialysis_summary_plot_0.5=L303_final %>%
+  filter(type=="0.5") %>%
+
+  ggplot() +
+  geom_point(aes(x=date, y=fe_average, colour=factor(station), 
+                 shape=factor(station)), size=3) +  
+  geom_line(aes(x=date, y=fe_average, group=factor(station), 
+                linetype=factor(station), colour=factor(station))) +
+  
+  scale_shape_manual(values=1:11,               #define # of point shapes
+                    labels=c("Station 1.1", "Station 1.2", "Station 1.3", 
+                             "Station 1.4", "Station 2.1", "Station 2.2", 
+                             "Station 2.3", "Station 2.4", "Station 2.5", 
+                             "Station 2.6", "Station 2.7")) + 
+  
+  theme_bw() +
+  scale_color_brewer(palette="Dark2") 
+
+print(L303_dialysis_summary_plot_0.5)
+```
+
+```{r}
+L303_dialysis_summary_plot_0.5=L303_final %>%
+  filter(type=="0.5") %>%
+print()
+```
+
+
+*################################## L304 ########################################*
+
+```{r Loading Data, include=TRUE}
+L304=read_csv(here("data","2024_Fe_results_L304.csv")) %>%
+  select(-station) %>%  #remove these cols
+  mutate(station=str_extract(sample_id, "(?<=_)[0-9]+\\.[0-9]+")) %>% #new col station 
+  mutate(fe2_mg_l=ifelse(fe2_mg_l=="Station Removed", NA, fe2_mg_l)) %>%
+  mutate(fe2_mg_l=as.numeric(fe2_mg_l)) %>%
+  print()
+```
+
+```{r Create a Function to Input Station Depths}
+get_depth_304=function(target_depth, station)  #define and create new function
+  {
+  if (is.na(target_depth) & station == "1.1") #if 'NA' fill value for 1.1 (SWI)
+    {return(1.5)                              #ensure numerical value for depth
+  } else if (is.na(target_depth) & station == "1.2") 
+    {return(2)  
+  } else if (is.na(target_depth) & station == "1.3") 
+    {return(2.5)
+  } else if (is.na(target_depth) & station == "1.4") 
+    {return(3)
+  } else if (is.na(target_depth) & station == "1.5") 
+    {return(3.5)  
+  } else if (is.na(target_depth) & station == "1.6") 
+    {return(4.5)
+  } else if (is.na(target_depth) & station == "1.7") 
+    {return(6.5)
+  } else if (is.na(target_depth) & station == "2.1") 
+    {return(1.5)
+  } else if (is.na(target_depth) & station == "2.2") 
+    {return(2)
+  } else if (is.na(target_depth) & station == "2.3") 
+    {return(2.5)
+  } else if (is.na(target_depth) & station == "2.4") 
+    {return(3)
+  } else if (is.na(target_depth) & station == "2.5") 
+    {return(3.5)
+  } else if (is.na(target_depth) & station == "2.6") 
+    {return(4)
+  } else if (is.na(target_depth) & station == "2.7") 
+    {return(6)
+    
+    } else {
+    return(target_depth)   #keep existing target_depth if condition is not met (0.5)
+  }
+}
+```
+
+```{r Apply Function, Reorder Cols}
+L304_depths=L304 %>%                            #create new df
+  rowwise() %>%                                 #apply function rowwise across
+  mutate(station_depth=get_depth_304(target_depth, station)) %>% #new col w function
+  select(date, sample_id, station, type, station_depth, fe2_mg_l, notes, -target_depth) %>% #reorder cols
+  mutate(station_depth=round(station_depth, 1),
+         fe2_mg_l=round(fe2_mg_l, 4)) %>%               #round new col
+print()
+```
+
+```{r Average Fe Values per Station per Type}
+L304_final=L304_depths %>%                                        #create new df
+  group_by(date, station, type) %>%      #only do this as based on this criteria
+#We need the average value from both replicates from i.) each day ii.) each station and iii.) each depth from that one station (e.g., 0.5m v SWI)
+  mutate(fe_average=round(mean(`fe2_mg_l`, na.rm=TRUE), 4)) %>% #calculate mean, ignoring NA... checked first rows, seems to have been done/applied correctly
+  ungroup() %>% 
+  select(date, sample_id, station, type, station_depth, 
+         fe2_mg_l, fe_average, notes) %>%
+print()
+```
+```{r Save new .CSV file}
+#Date Last run and saved: 2024-NOV-29
+#write_csv(L304_final, here("data", "2024_Fe_results_L304_cleaned.csv"))
+```
+
+
+group_by(tank) %>%                               #group each mean by tank (40)
+    mutate(consumer_mean_tank=round(sum(consumer_biomass)/2, 2)) %>% 
+    mutate(primary_mean_tank=round(sum(primary_biomass)/2, 2)) %>%
+    mutate(co2_mean_tank=round(sum(co2_flux)/2, 2)) %>% #2 samples per tank
+  ungroup() %>%                                       #re
