@@ -14,3 +14,4 @@ library(usethis)
 use_git_config(user.name= "Julia Kozak", user.email="jkozak799@gmail.com")
 ```
 
+Code and file above has been sucessfully pushed and pulled from GitHub. 
