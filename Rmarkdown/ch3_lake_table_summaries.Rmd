@@ -158,8 +158,6 @@ photic_depths_all<-par_clean %>%
 print(photic_depths_all)
 ```
 
-
-
 ```{r calculate average photic zone depth per lake}
 #using the `photic_depths` df because easier and data looks accurate, only made
 # the `photic_depths_all just to confirm that data returned was good
